@@ -1,5 +1,10 @@
-use axum::response::IntoResponse;
+use axum::extract::State;
+use std::sync::Arc;
 
-pub async fn metrics_endpoint() -> impl IntoResponse {
-    "# Metrics placeholder\n"
+use crate::observability::AppMetrics;
+
+pub async fn metrics_endpoint(
+    State(metrics): State<Arc<AppMetrics>>,
+) -> String {
+    metrics.render()
 }

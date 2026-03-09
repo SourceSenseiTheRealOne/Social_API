@@ -1,13 +1,14 @@
+mod cache;
+mod circuit_breaker;
+mod clients;
 mod config;
 mod errors;
-mod models;
-mod repositories;
-mod cache;
-mod clients;
-mod circuit_breaker;
-mod services;
-mod routes;
 mod middleware;
+mod models;
+mod observability;
+mod repositories;
+mod routes;
+mod services;
 mod sse;
 
 use std::collections::HashMap;
@@ -15,42 +16,36 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::{
-    Router,
     middleware::from_fn,
     middleware::from_fn_with_state,
-    routing::{get, post, delete},
+    routing::{delete, get, post},
+    Router,
 };
 use sqlx::postgres::PgPoolOptions;
 use tokio::sync::broadcast;
-use tracing_subscriber::EnvFilter;
 
-use config::Config;
 use cache::like_cache::RedisLikeCache;
 use cache::rate_limiter::RedisRateLimiter;
 use circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 use clients::content_client::HttpContentClient;
 use clients::profile_client::HttpProfileClient;
+use config::Config;
 use middleware::auth::{auth_middleware, AuthState};
-use middleware::rate_limit::{
-    read_rate_limit_middleware, write_rate_limit_middleware, RateLimitState,
-};
-use middleware::request_id::request_id_middleware;
 use middleware::metrics::metrics_middleware;
+use middleware::rate_limit::{read_rate_limit_middleware, write_rate_limit_middleware, RateLimitState};
+use middleware::request_id::request_id_middleware;
+use observability::{init_logging, AppMetrics};
 use repositories::PgLikeRepository;
+use routes::health::HealthState;
 use routes::likes::AppState;
 use services::LikeService;
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::from_default_env()
-                .add_directive("social_api=info".parse().unwrap()),
-        )
-        .json()
-        .init();
+    init_logging();
 
     let config = Config::from_env();
+    let metrics = AppMetrics::new();
 
     let write_pool = PgPoolOptions::new()
         .max_connections(config.db_max_connections)
@@ -118,23 +113,21 @@ async fn main() {
         HttpProfileClient::new(http_client.clone(), config.profile_api_url.clone(), profile_cb),
     );
 
-    let content_client: Arc<dyn clients::ContentClient> = Arc::new(
-        HttpContentClient::new(
-            http_client,
-            config.content_api_urls.clone(),
-            content_cbs,
-            like_cache.clone(),
-        ),
-    );
+    let content_client: Arc<dyn clients::ContentClient> = Arc::new(HttpContentClient::new(
+        http_client,
+        config.content_api_urls.clone(),
+        content_cbs,
+        like_cache.clone(),
+    ));
 
     let repo: Arc<dyn repositories::LikeRepository> =
-        Arc::new(PgLikeRepository::new(write_pool, read_pool));
+        Arc::new(PgLikeRepository::new(write_pool.clone(), read_pool));
 
     let (event_tx, _) = broadcast::channel::<models::like::LikeEvent>(1024);
 
     let like_service = Arc::new(LikeService::new(
         repo,
-        like_cache,
+        like_cache.clone(),
         content_client,
         event_tx.clone(),
     ));
@@ -143,14 +136,17 @@ async fn main() {
         like_service: like_service.clone(),
     });
 
-    let auth_state = Arc::new(AuthState {
-        profile_client,
-    });
+    let auth_state = Arc::new(AuthState { profile_client });
 
     let rate_limit_state = Arc::new(RateLimitState {
         rate_limiter,
         write_limit: config.rate_limit_write,
         read_limit: config.rate_limit_read,
+    });
+
+    let health_state = Arc::new(HealthState {
+        db_pool: write_pool,
+        cache: like_cache,
     });
 
     let auth_routes = Router::new()
@@ -182,7 +178,10 @@ async fn main() {
         )
         .route("/v1/likes/batch/counts", post(routes::likes::batch_counts))
         .route("/v1/likes/top", get(routes::likes::get_top))
-        .layer(from_fn_with_state(rate_limit_state, read_rate_limit_middleware))
+        .layer(from_fn_with_state(
+            rate_limit_state,
+            read_rate_limit_middleware,
+        ))
         .with_state(app_state);
 
     let sse_event_tx = event_tx.clone();
@@ -197,7 +196,9 @@ async fn main() {
     let infra_routes = Router::new()
         .route("/health/live", get(routes::health::live))
         .route("/health/ready", get(routes::health::ready))
-        .route("/metrics", get(routes::metrics::metrics_endpoint));
+        .route("/metrics", get(routes::metrics::metrics_endpoint))
+        .with_state(health_state)
+        .with_state(metrics.clone());
 
     let app = Router::new()
         .merge(auth_routes)
@@ -205,7 +206,7 @@ async fn main() {
         .merge(sse_route)
         .merge(infra_routes)
         .layer(from_fn(request_id_middleware))
-        .layer(from_fn(metrics_middleware));
+        .layer(from_fn_with_state(metrics.clone(), metrics_middleware));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], config.http_port));
     tracing::info!("Starting Social API on {}", addr);
