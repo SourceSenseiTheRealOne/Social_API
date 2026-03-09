@@ -1,0 +1,3 @@
+[workspace]
+members = ["social-api", "mock-services"]
+resolver = "2"
