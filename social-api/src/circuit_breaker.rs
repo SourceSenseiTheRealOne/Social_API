@@ -91,19 +91,16 @@ impl CircuitBreaker {
         inner.recent_calls.push_back((Instant::now(), true));
         self.trim_old_calls(&mut inner);
 
-        match inner.state {
-            CircuitState::HalfOpen => {
-                inner.consecutive_successes += 1;
-                if inner.consecutive_successes >= self.config.half_open_successes {
-                    tracing::info!(
-                        service = %self.service_name,
-                        "Circuit breaker transitioning: HalfOpen -> Closed"
-                    );
-                    inner.state = CircuitState::Closed;
-                    inner.consecutive_successes = 0;
-                }
+        if inner.state == CircuitState::HalfOpen {
+            inner.consecutive_successes += 1;
+            if inner.consecutive_successes >= self.config.half_open_successes {
+                tracing::info!(
+                    service = %self.service_name,
+                    "Circuit breaker transitioning: HalfOpen -> Closed"
+                );
+                inner.state = CircuitState::Closed;
+                inner.consecutive_successes = 0;
             }
-            _ => {}
         }
     }
 
@@ -140,7 +137,7 @@ impl CircuitBreaker {
     }
 
     pub fn state(&self) -> CircuitState {
-        self.inner.lock().unwrap().state.clone()
+        self.inner.lock().unwrap().state
     }
 
     fn should_open(&self, inner: &CircuitBreakerInner) -> bool {
@@ -169,7 +166,7 @@ impl CircuitBreaker {
         while inner
             .recent_calls
             .front()
-            .map_or(false, |(ts, _)| *ts < cutoff)
+            .is_some_and(|(ts, _)| *ts < cutoff)
         {
             inner.recent_calls.pop_front();
         }

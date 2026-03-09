@@ -52,7 +52,7 @@ pub enum TimeWindow {
 }
 
 impl TimeWindow {
-    pub fn to_duration(&self) -> Option<chrono::Duration> {
+    pub fn into_duration(self) -> Option<chrono::Duration> {
         match self {
             TimeWindow::H24 => Some(chrono::Duration::hours(24)),
             TimeWindow::D7 => Some(chrono::Duration::days(7)),

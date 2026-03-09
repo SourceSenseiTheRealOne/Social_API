@@ -340,7 +340,7 @@ impl LikeRepository for PgLikeRepository {
                 Ok(counts)
             }
             _ => {
-                let since = Utc::now() - window.to_duration().unwrap();
+                let since = Utc::now() - window.into_duration().unwrap();
                 let counts = if let Some(ct) = content_type {
                     sqlx::query_as::<_, LikeCount>(
                         r#"

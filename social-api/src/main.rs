@@ -5,6 +5,7 @@ mod config;
 mod errors;
 mod models;
 mod repositories;
+mod services;
 
 use axum::{routing::get, Json, Router};
 use config::Config;
@@ -15,7 +16,7 @@ use tracing_subscriber::EnvFilter;
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        .with_env_filter(
+        . with_env_filter(
             EnvFilter::from_default_env().add_directive("social_api=info".parse().unwrap()),
         )
         .json()
