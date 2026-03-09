@@ -1,6 +1,7 @@
 mod config;
 mod errors;
 mod models;
+mod repositories;
 
 use axum::{routing::get, Json, Router};
 use config::Config;
