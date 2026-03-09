@@ -3,6 +3,7 @@ mod circuit_breaker;
 mod clients;
 mod config;
 mod errors;
+mod middleware;
 mod models;
 mod repositories;
 mod services;
