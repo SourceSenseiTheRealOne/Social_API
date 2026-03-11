@@ -345,3 +345,235 @@ impl LikeService {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::like::{Like, LikeCount, TimeWindow};
+    use async_trait::async_trait;
+    use chrono::Utc;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    struct MockRepo {
+        likes: Mutex<Vec<(Uuid, String, Uuid)>>,
+        counts: Mutex<HashMap<(String, Uuid), i64>>,
+    }
+
+    impl MockRepo {
+        fn new() -> Self {
+            Self {
+                likes: Mutex::new(Vec::new()),
+                counts: Mutex::new(HashMap::new()),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl LikeRepository for MockRepo {
+        async fn insert_like(
+            &self,
+            user_id: Uuid,
+            ct: &str,
+            cid: Uuid,
+        ) -> Result<Option<Like>, AppError> {
+            let mut likes = self.likes.lock().unwrap();
+            let key = (user_id, ct.to_string(), cid);
+            if likes
+                .iter()
+                .any(|l| l.0 == key.0 && l.1 == key.1 && l.2 == key.2)
+            {
+                Ok(None)
+            } else {
+                likes.push(key);
+                Ok(Some(Like {
+                    id: Uuid::new_v4(),
+                    user_id,
+                    content_type: ct.to_string(),
+                    content_id: cid,
+                    created_at: Utc::now(),
+                }))
+            }
+        }
+
+        async fn delete_like(&self, user_id: Uuid, ct: &str, cid: Uuid) -> Result<bool, AppError> {
+            let mut likes = self.likes.lock().unwrap();
+            let before = likes.len();
+            likes.retain(|l| !(l.0 == user_id && l.1 == ct && l.2 == cid));
+            Ok(likes.len() < before)
+        }
+
+        async fn increment_count(&self, ct: &str, cid: Uuid) -> Result<i64, AppError> {
+            let mut counts = self.counts.lock().unwrap();
+            let count = counts.entry((ct.to_string(), cid)).or_insert(0);
+            *count += 1;
+            Ok(*count)
+        }
+
+        async fn decrement_count(&self, ct: &str, cid: Uuid) -> Result<i64, AppError> {
+            let mut counts = self.counts.lock().unwrap();
+            let count = counts.entry((ct.to_string(), cid)).or_insert(0);
+            *count = (*count - 1).max(0);
+            Ok(*count)
+        }
+
+        async fn get_like_count(&self, ct: &str, cid: Uuid) -> Result<i64, AppError> {
+            let counts = self.counts.lock().unwrap();
+            Ok(*counts.get(&(ct.to_string(), cid)).unwrap_or(&0))
+        }
+
+        async fn get_like_status(&self, uid: Uuid, ct: &str, cid: Uuid) -> Result<bool, AppError> {
+            let likes = self.likes.lock().unwrap();
+            Ok(likes.iter().any(|l| l.0 == uid && l.1 == ct && l.2 == cid))
+        }
+
+        async fn get_user_likes(
+            &self,
+            _uid: Uuid,
+            _cursor: Option<Cursor>,
+            _limit: u32,
+            _ct: Option<&str>,
+        ) -> Result<Vec<Like>, AppError> {
+            Ok(vec![])
+        }
+
+        async fn get_batch_counts(
+            &self,
+            items: &[(String, Uuid)],
+        ) -> Result<Vec<LikeCount>, AppError> {
+            let counts = self.counts.lock().unwrap();
+            Ok(items
+                .iter()
+                .map(|(ct, cid)| LikeCount {
+                    content_type: ct.clone(),
+                    content_id: *cid,
+                    count: *counts.get(&(ct.clone(), *cid)).unwrap_or(&0),
+                })
+                .collect())
+        }
+
+        async fn get_batch_statuses(
+            &self,
+            _uid: Uuid,
+            _items: &[(String, Uuid)],
+        ) -> Result<Vec<(String, Uuid, bool)>, AppError> {
+            Ok(vec![])
+        }
+
+        async fn get_top_liked(
+            &self,
+            _ct: Option<&str>,
+            _window: TimeWindow,
+            _limit: u32,
+        ) -> Result<Vec<LikeCount>, AppError> {
+            Ok(vec![])
+        }
+    }
+
+    struct NoOpCache;
+
+    #[async_trait]
+    impl LikeCache for NoOpCache {
+        async fn get_count(&self, _: &str, _: Uuid) -> Option<i64> {
+            None
+        }
+        async fn set_count(&self, _: &str, _: Uuid, _: i64) {}
+        async fn increment_count(&self, _: &str, _: Uuid) -> Option<i64> {
+            None
+        }
+        async fn decrement_count(&self, _: &str, _: Uuid) -> Option<i64> {
+            None
+        }
+        async fn get_content_validation(&self, _: &str, _: Uuid) -> Option<bool> {
+            None
+        }
+        async fn set_content_validation(&self, _: &str, _: Uuid, _: bool) {}
+        async fn is_available(&self) -> bool {
+            false
+        }
+        async fn acquire_stampede_lock(&self, _: &str, _: Duration) -> bool {
+            true
+        }
+    }
+
+    struct AlwaysValidContent;
+
+    #[async_trait]
+    impl ContentClient for AlwaysValidContent {
+        async fn validate_content(&self, _: &str, _: Uuid) -> Result<bool, AppError> {
+            Ok(true)
+        }
+    }
+
+    fn make_service() -> LikeService {
+        let (tx, _) = broadcast::channel(16);
+        LikeService::new(
+            Arc::new(MockRepo::new()),
+            Arc::new(NoOpCache),
+            Arc::new(AlwaysValidContent),
+            tx,
+        )
+    }
+
+    #[tokio::test]
+    async fn like_creates_new_like() {
+        let svc = make_service();
+        let uid = Uuid::new_v4();
+        let cid = Uuid::new_v4();
+
+        let resp = svc.like(uid, "post", cid).await.unwrap();
+        assert!(resp.liked);
+        assert_eq!(resp.total_count, 1);
+    }
+
+    #[tokio::test]
+    async fn like_idempotent() {
+        let svc = make_service();
+        let uid = Uuid::new_v4();
+        let cid = Uuid::new_v4();
+
+        svc.like(uid, "post", cid).await.unwrap();
+        let resp = svc.like(uid, "post", cid).await.unwrap();
+
+        assert!(resp.liked);
+        assert_eq!(resp.total_count, 1);
+    }
+
+    #[tokio::test]
+    async fn unlike_removes_like() {
+        let svc = make_service();
+        let uid = Uuid::new_v4();
+        let cid = Uuid::new_v4();
+
+        svc.like(uid, "post", cid).await.unwrap();
+        let resp = svc.unlike(uid, "post", cid).await.unwrap();
+
+        assert!(!resp.liked);
+        assert_eq!(resp.total_count, 0);
+    }
+
+    #[tokio::test]
+    async fn unlike_idempotent() {
+        let svc = make_service();
+        let uid = Uuid::new_v4();
+        let cid = Uuid::new_v4();
+
+        let resp = svc.unlike(uid, "post", cid).await.unwrap();
+        assert!(!resp.liked);
+        assert_eq!(resp.total_count, 0);
+    }
+
+    #[tokio::test]
+    async fn batch_too_large_error() {
+        let svc = make_service();
+        let items: Vec<ContentRef> = (0..101)
+            .map(|_| ContentRef {
+                content_type: "post".to_string(),
+                content_id: Uuid::new_v4(),
+            })
+            .collect();
+
+        let err = svc.get_batch_counts(items).await.unwrap_err();
+        assert!(matches!(err, AppError::BatchTooLarge { .. }));
+    }
+}

@@ -61,3 +61,19 @@ impl TimeWindow {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn time_window_h24_duration() {
+        let duration = TimeWindow::H24.into_duration().unwrap();
+        assert_eq!(duration.num_hours(), 24);
+    }
+
+    #[test]
+    fn time_window_all_no_duration() {
+        assert!(TimeWindow::All.into_duration().is_none());
+    }
+}

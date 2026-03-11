@@ -108,3 +108,76 @@ impl From<redis::RedisError> for AppError {
         AppError::Internal("Cache error".to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::response::IntoResponse;
+
+    #[test]
+    fn unauthorized_returns_401() {
+        let error = AppError::Unauthorized;
+        assert_eq!(error.status_code(), StatusCode::UNAUTHORIZED);
+        assert_eq!(error.code(), "UNAUTHORIZED");
+    }
+
+    #[test]
+    fn content_not_found_returns_404() {
+        let error = AppError::ContentNotFound {
+            content_type: "post".into(),
+            content_id: "abc".into(),
+        };
+        assert_eq!(error.status_code(), StatusCode::NOT_FOUND);
+        assert_eq!(error.code(), "CONTENT_NOT_FOUND");
+    }
+
+    #[test]
+    fn batch_too_large_returns_400() {
+        let error = AppError::BatchTooLarge { size: 200, max: 100 };
+        assert_eq!(error.status_code(), StatusCode::BAD_REQUEST);
+        assert_eq!(error.code(), "BATCH_TOO_LARGE");
+    }
+
+    #[test]
+    fn rate_limited_returns_429() {
+        let error = AppError::RateLimited { retry_after: 30 };
+        assert_eq!(error.status_code(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(error.code(), "RATE_LIMITED");
+    }
+
+    #[test]
+    fn dependency_unavailable_returns_503() {
+        let error = AppError::DependencyUnavailable {
+            service: "profile-api".into(),
+        };
+        assert_eq!(error.status_code(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code(), "DEPENDENCY_UNAVAILABLE");
+    }
+
+    #[tokio::test]
+    async fn error_response_has_json_format() {
+        let error = AppError::InvalidCursor;
+        let response = error.into_response();
+        let status = response.status();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert!(json["error"]["code"].is_string());
+        assert!(json["error"]["message"].is_string());
+    }
+
+    #[tokio::test]
+    async fn rate_limited_has_retry_after_header() {
+        let error = AppError::RateLimited { retry_after: 42 };
+        let response = error.into_response();
+
+        assert_eq!(
+            response.headers().get("Retry-After").unwrap(),
+            "42"
+        );
+    }
+}

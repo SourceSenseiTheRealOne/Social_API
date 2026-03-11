@@ -36,7 +36,7 @@ use middleware::rate_limit::{read_rate_limit_middleware, write_rate_limit_middle
 use middleware::request_id::request_id_middleware;
 use observability::{init_logging, AppMetrics};
 use repositories::PgLikeRepository;
-use routes::health::HealthState;
+use routes::health::{HealthState, InfraState};
 use routes::likes::AppState;
 use services::LikeService;
 
@@ -126,11 +126,14 @@ async fn main() {
     let (event_tx, _) = broadcast::channel::<models::like::LikeEvent>(1024);
 
     let like_service = Arc::new(LikeService::new(
-        repo,
+        repo.clone(),
         like_cache.clone(),
         content_client,
         event_tx.clone(),
     ));
+
+    // Warm caches before accepting traffic
+    cache::warming::warm_caches(&repo, &like_cache).await;
 
     let app_state = Arc::new(AppState {
         like_service: like_service.clone(),
@@ -193,12 +196,16 @@ async fn main() {
         }),
     );
 
+    let infra_state = Arc::new(InfraState {
+        health: health_state,
+        metrics: metrics.clone(),
+    });
+
     let infra_routes = Router::new()
         .route("/health/live", get(routes::health::live))
         .route("/health/ready", get(routes::health::ready))
         .route("/metrics", get(routes::metrics::metrics_endpoint))
-        .with_state(health_state)
-        .with_state(metrics.clone());
+        .with_state(infra_state);
 
     let app = Router::new()
         .merge(auth_routes)

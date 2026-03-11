@@ -172,3 +172,102 @@ impl CircuitBreaker {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_cb() -> CircuitBreaker {
+        CircuitBreaker::new(
+            "test-service".to_string(),
+            CircuitBreakerConfig {
+                failure_threshold: 3,
+                failure_rate_threshold: 50,
+                failure_rate_window: Duration::from_secs(30),
+                open_duration: Duration::from_millis(100),
+                half_open_successes: 2,
+            },
+        )
+    }
+
+    #[test]
+    fn starts_closed() {
+        let cb = test_cb();
+        assert_eq!(cb.state(), CircuitState::Closed);
+        assert!(cb.check().is_ok());
+    }
+
+    #[test]
+    fn opens_after_consecutive_failures() {
+        let cb = test_cb();
+
+        cb.record_failure();
+        cb.record_failure();
+        assert_eq!(cb.state(), CircuitState::Closed);
+
+        cb.record_failure();
+        assert_eq!(cb.state(), CircuitState::Open);
+        assert!(cb.check().is_err());
+    }
+
+    #[test]
+    fn success_resets_consecutive_failures() {
+        let cb = test_cb();
+
+        cb.record_failure();
+        cb.record_failure();
+        cb.record_success();
+
+        cb.record_failure();
+        assert_eq!(cb.state(), CircuitState::Closed);
+    }
+
+    #[test]
+    fn transitions_to_half_open_after_timeout() {
+        let cb = test_cb();
+
+        for _ in 0..3 {
+            cb.record_failure();
+        }
+        assert_eq!(cb.state(), CircuitState::Open);
+
+        std::thread::sleep(Duration::from_millis(150));
+
+        assert!(cb.check().is_ok());
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+    }
+
+    #[test]
+    fn half_open_closes_after_successes() {
+        let cb = test_cb();
+
+        for _ in 0..3 {
+            cb.record_failure();
+        }
+
+        std::thread::sleep(Duration::from_millis(150));
+        cb.check().ok();
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+
+        cb.record_success();
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+
+        cb.record_success();
+        assert_eq!(cb.state(), CircuitState::Closed);
+    }
+
+    #[test]
+    fn half_open_reopens_on_failure() {
+        let cb = test_cb();
+
+        for _ in 0..3 {
+            cb.record_failure();
+        }
+        std::thread::sleep(Duration::from_millis(150));
+        cb.check().ok();
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+
+        cb.record_failure();
+        assert_eq!(cb.state(), CircuitState::Open);
+    }
+}

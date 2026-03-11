@@ -1,10 +1,8 @@
 use axum::extract::State;
 use std::sync::Arc;
 
-use crate::observability::AppMetrics;
+use crate::routes::health::InfraState;
 
-pub async fn metrics_endpoint(
-    State(metrics): State<Arc<AppMetrics>>,
-) -> String {
-    metrics.render()
+pub async fn metrics_endpoint(State(state): State<Arc<InfraState>>) -> String {
+    state.metrics.render()
 }

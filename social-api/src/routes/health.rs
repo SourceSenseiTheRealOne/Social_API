@@ -3,6 +3,7 @@ use serde::Serialize;
 use std::sync::Arc;
 
 use crate::cache::LikeCache;
+use crate::observability::AppMetrics;
 
 #[derive(Serialize)]
 pub struct HealthResponse {
@@ -29,6 +30,11 @@ pub struct HealthState {
     pub cache: Arc<dyn LikeCache>,
 }
 
+pub struct InfraState {
+    pub health: Arc<HealthState>,
+    pub metrics: Arc<AppMetrics>,
+}
+
 pub async fn live() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "alive".to_string(),
@@ -36,11 +42,9 @@ pub async fn live() -> Json<HealthResponse> {
     })
 }
 
-pub async fn ready(
-    State(state): State<Arc<HealthState>>,
-) -> Json<HealthResponse> {
+pub async fn ready(State(state): State<Arc<InfraState>>) -> Json<HealthResponse> {
     let db_check = match sqlx::query("SELECT 1")
-        .fetch_one(&state.db_pool)
+        .fetch_one(&state.health.db_pool)
         .await
     {
         Ok(_) => CheckResult {
@@ -53,7 +57,7 @@ pub async fn ready(
         },
     };
 
-    let redis_check = if state.cache.is_available().await {
+    let redis_check = if state.health.cache.is_available().await {
         CheckResult {
             status: "ok".to_string(),
             message: None,
