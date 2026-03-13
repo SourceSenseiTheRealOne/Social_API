@@ -18,11 +18,7 @@ pub struct HttpProfileClient {
 }
 
 impl HttpProfileClient {
-    pub fn new(
-        client: Client,
-        base_url: String,
-        circuit_breaker: Arc<CircuitBreaker>,
-    ) -> Self {
+    pub fn new(client: Client, base_url: String, circuit_breaker: Arc<CircuitBreaker>) -> Self {
         Self {
             client,
             base_url,

@@ -7,10 +7,7 @@ use crate::repositories::LikeRepository;
 const WARM_TOP_N: u32 = 100;
 
 /// Warm caches with hot data before server accepts traffic.
-pub async fn warm_caches(
-    repo: &Arc<dyn LikeRepository>,
-    cache: &Arc<dyn LikeCache>,
-) {
+pub async fn warm_caches(repo: &Arc<dyn LikeRepository>, cache: &Arc<dyn LikeCache>) {
     tracing::info!("Starting cache warming...");
 
     // 1. Warm top liked content counts

@@ -8,12 +8,19 @@ async fn batch_counts_mixed_valid_invalid() {
     let valid_id = "731b0395-4888-4822-b516-05b4b7bf2089";
     let unknown_id = "00000000-0000-0000-0000-000000000000";
 
-    common::request(&app, "POST", "/v1/likes",
+    common::request(
+        &app,
+        "POST",
+        "/v1/likes",
         Some(json!({"content_type": "post", "content_id": valid_id})),
         Some("tok_user_1"),
-    ).await;
+    )
+    .await;
 
-    let (status, body) = common::request(&app, "POST", "/v1/likes/batch/counts",
+    let (status, body) = common::request(
+        &app,
+        "POST",
+        "/v1/likes/batch/counts",
         Some(json!({
             "items": [
                 {"content_type": "post", "content_id": valid_id},
@@ -21,7 +28,8 @@ async fn batch_counts_mixed_valid_invalid() {
             ]
         })),
         None,
-    ).await;
+    )
+    .await;
 
     assert_eq!(status, 200);
     assert_eq!(body["counts"].as_array().unwrap().len(), 2);
@@ -37,10 +45,14 @@ async fn batch_exceeding_100_returns_400() {
         .map(|_| json!({"content_type": "post", "content_id": uuid::Uuid::new_v4().to_string()}))
         .collect();
 
-    let (status, body) = common::request(&app, "POST", "/v1/likes/batch/counts",
+    let (status, body) = common::request(
+        &app,
+        "POST",
+        "/v1/likes/batch/counts",
         Some(json!({"items": items})),
         None,
-    ).await;
+    )
+    .await;
 
     assert_eq!(status, 400);
     assert_eq!(body["error"]["code"], "BATCH_TOO_LARGE");

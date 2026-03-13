@@ -9,6 +9,9 @@ pub enum CircuitState {
     HalfOpen,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct CircuitOpen;
+
 #[derive(Debug, Clone)]
 pub struct CircuitBreakerConfig {
     pub failure_threshold: u32,
@@ -59,7 +62,7 @@ impl CircuitBreaker {
         }
     }
 
-    pub fn check(&self) -> Result<(), ()> {
+    pub fn check(&self) -> Result<(), CircuitOpen> {
         let mut inner = self.inner.lock().unwrap();
 
         match inner.state {
@@ -75,10 +78,10 @@ impl CircuitBreaker {
                         inner.consecutive_successes = 0;
                         Ok(())
                     } else {
-                        Err(())
+                        Err(CircuitOpen)
                     }
                 } else {
-                    Err(())
+                    Err(CircuitOpen)
                 }
             }
             CircuitState::HalfOpen => Ok(()),
@@ -136,6 +139,7 @@ impl CircuitBreaker {
         }
     }
 
+    #[allow(dead_code)]
     pub fn state(&self) -> CircuitState {
         self.inner.lock().unwrap().state
     }

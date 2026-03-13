@@ -10,12 +10,19 @@ pub struct AppMetrics {
     pub registry: Registry,
     pub http_requests_total: Family<HttpLabels, Counter>,
     pub http_request_duration: Family<HttpDurationLabels, Histogram>,
+    #[allow(dead_code)]
     pub cache_operations_total: Family<CacheLabels, Counter>,
+    #[allow(dead_code)]
     pub external_calls_total: Family<ExternalCallLabels, Counter>,
+    #[allow(dead_code)]
     pub external_call_duration: Family<ExternalDurationLabels, Histogram>,
+    #[allow(dead_code)]
     pub circuit_breaker_state: Family<ServiceLabel, Gauge>,
+    #[allow(dead_code)]
     pub db_pool_connections: Family<PoolStateLabels, Gauge>,
+    #[allow(dead_code)]
     pub sse_connections_active: Gauge,
+    #[allow(dead_code)]
     pub likes_total: Family<LikeLabels, Counter>,
 }
 
@@ -78,9 +85,10 @@ impl AppMetrics {
             http_requests_total.clone(),
         );
 
-        let http_request_duration = Family::<HttpDurationLabels, Histogram>::new_with_constructor(
-            || Histogram::new(exponential_buckets(0.001, 2.0, 15)),
-        );
+        let http_request_duration =
+            Family::<HttpDurationLabels, Histogram>::new_with_constructor(|| {
+                Histogram::new(exponential_buckets(0.001, 2.0, 15))
+            });
         registry.register(
             "social_api_http_request_duration_seconds",
             "HTTP request duration in seconds",

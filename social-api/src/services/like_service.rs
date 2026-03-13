@@ -40,6 +40,7 @@ impl LikeService {
         }
     }
 
+    #[allow(dead_code)]
     pub fn subscribe(&self) -> broadcast::Receiver<LikeEvent> {
         self.event_tx.subscribe()
     }
@@ -61,7 +62,10 @@ impl LikeService {
             });
         }
 
-        let new_like = self.repo.insert_like(user_id, content_type, content_id).await?;
+        let new_like = self
+            .repo
+            .insert_like(user_id, content_type, content_id)
+            .await?;
 
         let total_count = if new_like.is_some() {
             let db_count = self.repo.increment_count(content_type, content_id).await?;
@@ -94,7 +98,10 @@ impl LikeService {
         content_type: &str,
         content_id: Uuid,
     ) -> Result<UnlikeResponse, AppError> {
-        let was_deleted = self.repo.delete_like(user_id, content_type, content_id).await?;
+        let was_deleted = self
+            .repo
+            .delete_like(user_id, content_type, content_id)
+            .await?;
 
         let total_count = if was_deleted {
             let db_count = self.repo.decrement_count(content_type, content_id).await?;
@@ -159,9 +166,7 @@ impl LikeService {
         limit: Option<u32>,
         content_type: Option<String>,
     ) -> Result<UserLikesResponse, AppError> {
-        let limit = limit
-            .unwrap_or(DEFAULT_PAGE_SIZE)
-            .min(MAX_PAGE_SIZE);
+        let limit = limit.unwrap_or(DEFAULT_PAGE_SIZE).min(MAX_PAGE_SIZE);
 
         let decoded_cursor = match cursor {
             Some(ref c) => {
@@ -173,12 +178,7 @@ impl LikeService {
 
         let likes = self
             .repo
-            .get_user_likes(
-                user_id,
-                decoded_cursor,
-                limit + 1,
-                content_type.as_deref(),
-            )
+            .get_user_likes(user_id, decoded_cursor, limit + 1, content_type.as_deref())
             .await?;
 
         let has_more = likes.len() > limit as usize;
@@ -193,9 +193,9 @@ impl LikeService {
             .collect();
 
         let next_cursor = if has_more {
-            items.last().map(|item| {
-                Cursor::new(item.liked_at, item.content_id).encode()
-            })
+            items
+                .last()
+                .map(|item| Cursor::new(item.liked_at, item.content_id).encode())
         } else {
             None
         };

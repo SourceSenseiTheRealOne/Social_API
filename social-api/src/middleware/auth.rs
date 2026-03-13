@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use crate::clients::ProfileClient;
 use crate::errors::AppError;
-use crate::models::like::UserInfo;
 
 pub struct AuthState {
     pub profile_client: Arc<dyn ProfileClient>,

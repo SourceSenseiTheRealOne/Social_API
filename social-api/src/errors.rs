@@ -17,6 +17,7 @@ pub enum AppError {
     #[error("Unknown content type: {0}")]
     ContentTypeUnknown(String),
 
+    #[allow(dead_code)]
     #[error("Invalid content ID: {0}")]
     InvalidContentId(String),
 
@@ -26,6 +27,7 @@ pub enum AppError {
     #[error("Invalid cursor")]
     InvalidCursor,
 
+    #[allow(dead_code)]
     #[error("Invalid time window: {0}")]
     InvalidWindow(String),
 
@@ -85,10 +87,9 @@ impl IntoResponse for AppError {
 
         let mut response = (status, Json(body)).into_response();
         if let AppError::RateLimited { retry_after } = &self {
-            response.headers_mut().insert(
-                "Retry-After",
-                retry_after.to_string().parse().unwrap(),
-            );
+            response
+                .headers_mut()
+                .insert("Retry-After", retry_after.to_string().parse().unwrap());
         }
 
         response
@@ -133,7 +134,10 @@ mod tests {
 
     #[test]
     fn batch_too_large_returns_400() {
-        let error = AppError::BatchTooLarge { size: 200, max: 100 };
+        let error = AppError::BatchTooLarge {
+            size: 200,
+            max: 100,
+        };
         assert_eq!(error.status_code(), StatusCode::BAD_REQUEST);
         assert_eq!(error.code(), "BATCH_TOO_LARGE");
     }
@@ -175,9 +179,6 @@ mod tests {
         let error = AppError::RateLimited { retry_after: 42 };
         let response = error.into_response();
 
-        assert_eq!(
-            response.headers().get("Retry-After").unwrap(),
-            "42"
-        );
+        assert_eq!(response.headers().get("Retry-After").unwrap(), "42");
     }
 }

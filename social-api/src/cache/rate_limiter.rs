@@ -12,12 +12,7 @@ pub struct RateLimitInfo {
 
 #[async_trait]
 pub trait RateLimiter: Send + Sync {
-    async fn check_rate_limit(
-        &self,
-        scope: &str,
-        identifier: &str,
-        limit: u32,
-    ) -> RateLimitInfo;
+    async fn check_rate_limit(&self, scope: &str, identifier: &str, limit: u32) -> RateLimitInfo;
 }
 
 pub struct RedisRateLimiter {
@@ -33,12 +28,7 @@ impl RedisRateLimiter {
 
 #[async_trait]
 impl RateLimiter for RedisRateLimiter {
-    async fn check_rate_limit(
-        &self,
-        scope: &str,
-        identifier: &str,
-        limit: u32,
-    ) -> RateLimitInfo {
+    async fn check_rate_limit(&self, scope: &str, identifier: &str, limit: u32) -> RateLimitInfo {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()

@@ -40,10 +40,7 @@ pub trait LikeRepository: Send + Sync {
         content_type: Option<&str>,
     ) -> Result<Vec<Like>, AppError>;
 
-    async fn get_batch_counts(
-        &self,
-        items: &[(String, Uuid)],
-    ) -> Result<Vec<LikeCount>, AppError>;
+    async fn get_batch_counts(&self, items: &[(String, Uuid)]) -> Result<Vec<LikeCount>, AppError>;
 
     async fn get_batch_statuses(
         &self,
@@ -58,11 +55,9 @@ pub trait LikeRepository: Send + Sync {
         limit: u32,
     ) -> Result<Vec<LikeCount>, AppError>;
 
-    async fn increment_count(&self, content_type: &str, content_id: Uuid)
-        -> Result<i64, AppError>;
+    async fn increment_count(&self, content_type: &str, content_id: Uuid) -> Result<i64, AppError>;
 
-    async fn decrement_count(&self, content_type: &str, content_id: Uuid)
-        -> Result<i64, AppError>;
+    async fn decrement_count(&self, content_type: &str, content_id: Uuid) -> Result<i64, AppError>;
 }
 
 pub struct PgLikeRepository {
@@ -248,10 +243,7 @@ impl LikeRepository for PgLikeRepository {
         Ok(likes)
     }
 
-    async fn get_batch_counts(
-        &self,
-        items: &[(String, Uuid)],
-    ) -> Result<Vec<LikeCount>, AppError> {
+    async fn get_batch_counts(&self, items: &[(String, Uuid)]) -> Result<Vec<LikeCount>, AppError> {
         let content_types: Vec<&str> = items.iter().map(|(ct, _)| ct.as_str()).collect();
         let content_ids: Vec<Uuid> = items.iter().map(|(_, id)| *id).collect();
 
@@ -378,11 +370,7 @@ impl LikeRepository for PgLikeRepository {
         }
     }
 
-    async fn increment_count(
-        &self,
-        content_type: &str,
-        content_id: Uuid,
-    ) -> Result<i64, AppError> {
+    async fn increment_count(&self, content_type: &str, content_id: Uuid) -> Result<i64, AppError> {
         let count = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO like_counts (content_type, content_id, count, updated_at)
@@ -402,11 +390,7 @@ impl LikeRepository for PgLikeRepository {
         Ok(count)
     }
 
-    async fn decrement_count(
-        &self,
-        content_type: &str,
-        content_id: Uuid,
-    ) -> Result<i64, AppError> {
+    async fn decrement_count(&self, content_type: &str, content_id: Uuid) -> Result<i64, AppError> {
         let count = sqlx::query_scalar::<_, i64>(
             r#"
             UPDATE like_counts

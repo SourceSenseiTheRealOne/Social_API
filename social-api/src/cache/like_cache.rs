@@ -63,7 +63,9 @@ impl LikeCache for RedisLikeCache {
     }
 
     async fn set_count(&self, content_type: &str, content_id: Uuid, count: i64) {
-        let Some(mut conn) = self.get_conn().await else { return };
+        let Some(mut conn) = self.get_conn().await else {
+            return;
+        };
         let key = Self::count_key(content_type, content_id);
         let _: Result<(), _> = conn.set_ex(&key, count, self.count_ttl.as_secs()).await;
     }
@@ -77,7 +79,7 @@ impl LikeCache for RedisLikeCache {
     async fn decrement_count(&self, content_type: &str, content_id: Uuid) -> Option<i64> {
         let mut conn = self.get_conn().await?;
         let key = Self::count_key(content_type, content_id);
-        
+
         let script = redis::Script::new(
             r#"
             local current = redis.call('GET', KEYS[1])
@@ -98,7 +100,9 @@ impl LikeCache for RedisLikeCache {
     }
 
     async fn set_content_validation(&self, content_type: &str, content_id: Uuid, valid: bool) {
-        let Some(mut conn) = self.get_conn().await else { return };
+        let Some(mut conn) = self.get_conn().await else {
+            return;
+        };
         let key = Self::validation_key(content_type, content_id);
         let val = if valid { "1" } else { "0" };
         let _: Result<(), _> = conn.set_ex(&key, val, self.validation_ttl.as_secs()).await;
@@ -109,12 +113,11 @@ impl LikeCache for RedisLikeCache {
     }
 
     async fn acquire_stampede_lock(&self, key: &str, ttl: Duration) -> bool {
-        let Some(mut conn) = self.get_conn().await else { return false };
+        let Some(mut conn) = self.get_conn().await else {
+            return false;
+        };
         let lock_key = Self::stampede_lock_key(key);
-        let result: bool = conn
-            .set_nx(&lock_key, "1")
-            .await
-            .unwrap_or(false);
+        let result: bool = conn.set_nx(&lock_key, "1").await.unwrap_or(false);
         if result {
             let _: Result<(), _> = conn.expire(&lock_key, ttl.as_millis() as i64).await;
         }

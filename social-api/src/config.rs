@@ -17,7 +17,7 @@ pub struct Config {
     pub profile_api_url: String,
 
     pub rate_limit_write: u32,
-    pub rate_limit_read: u32, 
+    pub rate_limit_read: u32,
 
     pub cache_ttl_count: u64,
     pub cache_ttl_content_validation: u64,
@@ -71,10 +71,12 @@ impl Config {
         config
     }
 
+    #[allow(dead_code)]
     pub fn valid_content_types(&self) -> Vec<&str> {
         self.content_api_urls.keys().map(|s| s.as_str()).collect()
     }
 
+    #[allow(dead_code)]
     pub fn content_api_url(&self, content_type: &str) -> Option<&str> {
         self.content_api_urls.get(content_type).map(|s| s.as_str())
     }

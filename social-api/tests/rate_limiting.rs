@@ -1,9 +1,12 @@
+mod common;
+
+use serde_json::json;
+
 use axum::Router;
 use social_api::cache::rate_limiter::{RateLimitInfo, RateLimiter};
 use social_api::cache::LikeCache;
 use social_api::errors::AppError;
-use social_api::models::like::LikeEvent;
-use social_api::models::like::UserInfo;
+use social_api::models::like::{LikeEvent, UserInfo};
 use social_api::observability::AppMetrics;
 use social_api::repositories::{LikeRepository, PgLikeRepository};
 use social_api::routes::health::{HealthState, InfraState};
@@ -12,7 +15,6 @@ use social_api::services::LikeService;
 use sqlx::PgPool;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tower::ServiceExt;
 use uuid::Uuid;
 
 use axum::{
@@ -21,84 +23,49 @@ use axum::{
 };
 
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::time::Duration;
 
-pub async fn setup_test_app() -> (Router, PgPool, String) {
-    let schema = format!("test_{}", Uuid::new_v4().to_string().replace("-", ""));
-
-    let database_url = std::env::var("TEST_DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://social:social@localhost:5432/social_api".to_string());
-
-    let pool = PgPool::connect(&database_url).await.unwrap();
-
-    sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS \"{}\"", schema))
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    sqlx::query(&format!("SET search_path TO \"{}\"", schema))
-        .execute(&pool)
-        .await
-        .unwrap();
-
-    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-
-    let app = build_test_router(pool.clone()).await;
-
-    (app, pool, schema)
+/// A rate limiter that actually counts calls and enforces limits.
+struct CountingRateLimiter {
+    counts: std::sync::Mutex<HashMap<String, u32>>,
 }
 
-pub async fn teardown(pool: &PgPool, schema: &str) {
-    sqlx::query(&format!("DROP SCHEMA IF EXISTS \"{}\" CASCADE", schema))
-        .execute(pool)
-        .await
-        .ok();
-}
-
-pub async fn request(
-    app: &Router,
-    method: &str,
-    path: &str,
-    body: Option<serde_json::Value>,
-    auth_token: Option<&str>,
-) -> (u16, serde_json::Value) {
-    use axum::body::Body;
-    use http::Request;
-
-    let mut builder = Request::builder()
-        .method(method)
-        .uri(path)
-        .header("Content-Type", "application/json");
-
-    if let Some(token) = auth_token {
-        builder = builder.header("Authorization", format!("Bearer {}", token));
+impl CountingRateLimiter {
+    fn new() -> Self {
+        Self {
+            counts: std::sync::Mutex::new(HashMap::new()),
+        }
     }
+}
 
-    let body = match body {
-        Some(json) => Body::from(serde_json::to_string(&json).unwrap()),
-        None => Body::empty(),
-    };
+#[async_trait]
+impl RateLimiter for CountingRateLimiter {
+    async fn check_rate_limit(&self, _scope: &str, identifier: &str, limit: u32) -> RateLimitInfo {
+        let mut counts = self.counts.lock().unwrap();
+        let count = counts.entry(identifier.to_string()).or_insert(0);
+        *count += 1;
 
-    let request = builder.body(body).unwrap();
-    let response = app.clone().oneshot(request).await.unwrap();
+        let exceeded = *count > limit;
+        let remaining = if exceeded { 0 } else { limit - *count };
 
-    let status = response.status().as_u16();
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
-
-    (status, json)
+        RateLimitInfo {
+            limit,
+            remaining,
+            reset_at: 60,
+            exceeded,
+        }
+    }
 }
 
 struct MockCache {
-    counts: std::sync::Mutex<std::collections::HashMap<(String, Uuid), i64>>,
+    counts: std::sync::Mutex<HashMap<(String, Uuid), i64>>,
 }
 
 impl MockCache {
     fn new() -> Self {
         Self {
-            counts: std::sync::Mutex::new(std::collections::HashMap::new()),
+            counts: std::sync::Mutex::new(HashMap::new()),
         }
     }
 }
@@ -146,22 +113,6 @@ impl LikeCache for MockCache {
     }
 }
 
-struct MockRateLimiter {
-    limit: u32,
-}
-
-#[async_trait]
-impl RateLimiter for MockRateLimiter {
-    async fn check_rate_limit(&self, _scope: &str, _identifier: &str, limit: u32) -> RateLimitInfo {
-        RateLimitInfo {
-            limit,
-            remaining: limit,
-            reset_at: 0,
-            exceeded: false,
-        }
-    }
-}
-
 struct MockContentClient;
 
 #[async_trait]
@@ -191,17 +142,31 @@ impl social_api::clients::ProfileClient for MockProfileClient {
     }
 }
 
-async fn build_test_router(pool: PgPool) -> Router {
+async fn setup_rate_limited_app(write_limit: u32) -> (Router, PgPool, String) {
+    let schema = format!("test_{}", Uuid::new_v4().to_string().replace("-", ""));
+
+    let database_url = std::env::var("TEST_DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://social:social@localhost:5432/social_api".to_string());
+
+    let pool = PgPool::connect(&database_url).await.unwrap();
+
+    sqlx::query(&format!("CREATE SCHEMA IF NOT EXISTS \"{}\"", schema))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    sqlx::query(&format!("SET search_path TO \"{}\"", schema))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+
     let metrics = AppMetrics::new();
-
     let like_cache: Arc<dyn LikeCache> = Arc::new(MockCache::new());
-
-    let rate_limiter: Arc<dyn RateLimiter> = Arc::new(MockRateLimiter { limit: 100 });
-
+    let rate_limiter: Arc<dyn RateLimiter> = Arc::new(CountingRateLimiter::new());
     let content_client: Arc<dyn social_api::clients::ContentClient> = Arc::new(MockContentClient);
-
     let profile_client: Arc<dyn social_api::clients::ProfileClient> = Arc::new(MockProfileClient);
-
     let repo: Arc<dyn LikeRepository> = Arc::new(PgLikeRepository::new(pool.clone(), pool.clone()));
 
     let (event_tx, _) = broadcast::channel::<LikeEvent>(1024);
@@ -221,12 +186,12 @@ async fn build_test_router(pool: PgPool) -> Router {
 
     let rate_limit_state = Arc::new(social_api::middleware::rate_limit::RateLimitState {
         rate_limiter,
-        write_limit: 30,
-        read_limit: 100,
+        write_limit,
+        read_limit: 1000,
     });
 
     let health_state = Arc::new(HealthState {
-        db_pool: pool,
+        db_pool: pool.clone(),
         cache: like_cache,
     });
 
@@ -279,15 +244,6 @@ async fn build_test_router(pool: PgPool) -> Router {
         ))
         .with_state(app_state);
 
-    let sse_event_tx = event_tx.clone();
-    let sse_route = Router::new().route(
-        "/v1/likes/stream",
-        get(move || {
-            let rx = sse_event_tx.subscribe();
-            social_api::sse::sse_stream(rx)
-        }),
-    );
-
     let infra_routes = Router::new()
         .route("/health/live", get(social_api::routes::health::live))
         .route("/health/ready", get(social_api::routes::health::ready))
@@ -297,10 +253,9 @@ async fn build_test_router(pool: PgPool) -> Router {
         )
         .with_state(infra_state);
 
-    Router::new()
+    let app = Router::new()
         .merge(auth_routes)
         .merge(public_routes)
-        .merge(sse_route)
         .merge(infra_routes)
         .layer(from_fn(
             social_api::middleware::request_id::request_id_middleware,
@@ -308,5 +263,42 @@ async fn build_test_router(pool: PgPool) -> Router {
         .layer(from_fn_with_state(
             metrics,
             social_api::middleware::metrics::metrics_middleware,
-        ))
+        ));
+
+    (app, pool, schema)
+}
+
+#[tokio::test]
+async fn write_rate_limit_triggers_at_31() {
+    let (app, pool, schema) = setup_rate_limited_app(30).await;
+
+    // Send 30 requests (at the limit)
+    for i in 0..30 {
+        let content_id = Uuid::new_v4().to_string();
+        let (status, _) = common::request(
+            &app,
+            "POST",
+            "/v1/likes",
+            Some(json!({"content_type": "post", "content_id": content_id})),
+            Some("tok_user_1"),
+        )
+        .await;
+        // Should not be rate limited yet
+        assert_ne!(status, 429, "Rate limited too early at request {}", i + 1);
+    }
+
+    // 31st request should be rate limited
+    let (status, body) = common::request(
+        &app,
+        "POST",
+        "/v1/likes",
+        Some(json!({"content_type": "post", "content_id": Uuid::new_v4().to_string()})),
+        Some("tok_user_1"),
+    )
+    .await;
+
+    assert_eq!(status, 429);
+    assert_eq!(body["error"]["code"], "RATE_LIMITED");
+
+    common::teardown(&pool, &schema).await;
 }

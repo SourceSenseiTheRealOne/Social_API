@@ -6,10 +6,14 @@ use serde_json::json;
 async fn no_auth_header_returns_401() {
     let (app, pool, schema) = common::setup_test_app().await;
 
-    let (status, body) = common::request(&app, "POST", "/v1/likes",
+    let (status, body) = common::request(
+        &app,
+        "POST",
+        "/v1/likes",
         Some(json!({"content_type": "post", "content_id": "731b0395-4888-4822-b516-05b4b7bf2089"})),
         None,
-    ).await;
+    )
+    .await;
 
     assert_eq!(status, 401);
     assert_eq!(body["error"]["code"], "UNAUTHORIZED");
@@ -21,10 +25,14 @@ async fn no_auth_header_returns_401() {
 async fn invalid_token_returns_401() {
     let (app, pool, schema) = common::setup_test_app().await;
 
-    let (status, _) = common::request(&app, "POST", "/v1/likes",
+    let (status, _) = common::request(
+        &app,
+        "POST",
+        "/v1/likes",
         Some(json!({"content_type": "post", "content_id": "731b0395-4888-4822-b516-05b4b7bf2089"})),
         Some("invalid_token"),
-    ).await;
+    )
+    .await;
 
     assert_eq!(status, 401);
 

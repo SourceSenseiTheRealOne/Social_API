@@ -46,9 +46,10 @@ impl ContentClient for HttpContentClient {
         content_type: &str,
         content_id: uuid::Uuid,
     ) -> Result<bool, AppError> {
-        let base_url = self.api_urls.get(content_type).ok_or_else(|| {
-            AppError::ContentTypeUnknown(content_type.to_string())
-        })?;
+        let base_url = self
+            .api_urls
+            .get(content_type)
+            .ok_or_else(|| AppError::ContentTypeUnknown(content_type.to_string()))?;
 
         if let Some(valid) = self
             .cache

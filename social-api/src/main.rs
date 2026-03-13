@@ -32,7 +32,9 @@ use clients::profile_client::HttpProfileClient;
 use config::Config;
 use middleware::auth::{auth_middleware, AuthState};
 use middleware::metrics::metrics_middleware;
-use middleware::rate_limit::{read_rate_limit_middleware, write_rate_limit_middleware, RateLimitState};
+use middleware::rate_limit::{
+    read_rate_limit_middleware, write_rate_limit_middleware, RateLimitState,
+};
 use middleware::request_id::request_id_middleware;
 use observability::{init_logging, AppMetrics};
 use repositories::PgLikeRepository;
@@ -109,9 +111,11 @@ async fn main() {
         .build()
         .unwrap();
 
-    let profile_client: Arc<dyn clients::ProfileClient> = Arc::new(
-        HttpProfileClient::new(http_client.clone(), config.profile_api_url.clone(), profile_cb),
-    );
+    let profile_client: Arc<dyn clients::ProfileClient> = Arc::new(HttpProfileClient::new(
+        http_client.clone(),
+        config.profile_api_url.clone(),
+        profile_cb,
+    ));
 
     let content_client: Arc<dyn clients::ContentClient> = Arc::new(HttpContentClient::new(
         http_client,

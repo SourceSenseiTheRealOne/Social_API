@@ -69,12 +69,7 @@ pub async fn get_user_likes(
 ) -> Result<Json<UserLikesResponse>, AppError> {
     let response = state
         .like_service
-        .get_user_likes(
-            user.user_id,
-            query.cursor,
-            query.limit,
-            query.content_type,
-        )
+        .get_user_likes(user.user_id, query.cursor, query.limit, query.content_type)
         .await?;
     Ok(Json(response))
 }
